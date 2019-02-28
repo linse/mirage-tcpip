@@ -22,7 +22,7 @@ module Unmarshal : sig
   val int_to_protocol : int -> protocol option
 
   val of_cstruct : Cstruct.t -> (t * Cstruct.t, error) result
-  val header_of_cstruct : Cstruct.t -> (t, error) result
+  val header_of_cstruct : Cstruct.t -> ((t * int), error) result
 
   val verify_transport_checksum : proto:([`TCP | `UDP]) -> ipv4_header:t ->
       transport_packet:Cstruct.t -> bool

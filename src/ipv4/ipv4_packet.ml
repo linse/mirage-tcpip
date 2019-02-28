@@ -135,7 +135,7 @@ module Unmarshal = struct
         if options_end > sizeof_ipv4 then (Cstruct.sub buf sizeof_ipv4 (options_end - sizeof_ipv4))
         else (Cstruct.create 0)
       in
-       Ok {src; dst; id; off; ttl; proto; options;}
+       Ok ({src; dst; id; off; ttl; proto; options;}, options_end)
     in
     size_check buf >>= check_version >>= get_header_length >>= parse buf
 
@@ -143,54 +143,18 @@ module Unmarshal = struct
   let of_cstruct buf =
     let open Rresult in
     let open Ipv4_wire in
-    let check_version buf =
-      let version n = (n land 0xf0) in
-      match get_ipv4_hlen_version buf |> version with
-      | 0x40 -> Ok buf
-      | n -> Error (Printf.sprintf "IPv4 presented with a packet that claims a different IP version: %x" n)
-    in
-    let size_check buf =
-      if (Cstruct.len buf < sizeof_ipv4) then Error "buffer sent to IPv4 parser had size < 20"
-      else Ok buf
-    in
-    let get_header_length buf =
-      let length_of_hlen_version n = (n land 0x0f) * 4 in
-      let hlen = get_ipv4_hlen_version buf |> length_of_hlen_version in
-        if (get_ipv4_len buf) < sizeof_ipv4 then
-          Error (Printf.sprintf
-                   "total length %d is smaller than minimum header length"
-                   (get_ipv4_len buf))
-        else if get_ipv4_len buf < hlen then
-          Error (Printf.sprintf
-                   "total length %d is smaller than stated header length %d"
-                   (get_ipv4_len buf) hlen)
-        else if hlen < sizeof_ipv4 then
-          Error (Printf.sprintf "IPv4 header claimed to have size < 20: %d" hlen)
-        else if Cstruct.len buf < hlen then
-          Error (Printf.sprintf "IPv4 packet w/length %d claimed to have header of size %d" (Cstruct.len buf) hlen)
-        else Ok hlen
-    in
     let parse buf options_end =
       let payload_len = (get_ipv4_len buf) - options_end in
-      let src = Ipaddr.V4.of_int32 (get_ipv4_src buf) in
-      let dst = Ipaddr.V4.of_int32 (get_ipv4_dst buf) in
-      let id = get_ipv4_id buf in
-      let off = get_ipv4_off buf in
-      let ttl = get_ipv4_ttl buf in
-      let proto = get_ipv4_proto buf in
-      let options =
-        if options_end > sizeof_ipv4 then (Cstruct.sub buf sizeof_ipv4 (options_end - sizeof_ipv4))
-        else (Cstruct.create 0)
-      in
       let payload_available = Cstruct.len buf - options_end in
       if payload_available < payload_len then (
         Error (Printf.sprintf "Payload buffer (%d bytes) too small to contain payload (of size %d from header)" payload_available payload_len)
       ) else (
         let payload = Cstruct.sub buf options_end payload_len in
-        Ok ({src; dst; id; off; ttl; proto; options;}, payload)
+        Ok payload
       )
     in
-    size_check buf >>= check_version >>= get_header_length >>= parse buf
+    header_of_cstruct buf >>= fun (header, options_end) ->
+    parse buf options_end >>= fun payload -> Ok (header, payload)
 
   let verify_transport_checksum ~proto ~ipv4_header ~transport_packet =
     (* note: it's not necessary to ensure padding to integral number of 16-bit fields here; ones_complement_list does this for us *)
